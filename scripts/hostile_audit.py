@@ -220,7 +220,30 @@ def test_section_durations():
     print("  PASS: duration = 120.0s")
 
 
-# ── 8b. Exact section durations (A=30, B=42, A'=30, outro=18) ─────────────
+# ── 8b. No boundary dips (crossfade must overlap, not zero-meet) ──────────
+def test_no_boundary_dips():
+    m = make_random_motif(555)
+    while len(m.events) < 4:
+        m = make_random_motif(np.random.randint(3000))
+    audio = compose_long_horizon(m, fundamental=82.4, total_dur=120.0, seed=42)
+
+    # Section boundaries at 30s, 72s, 102s
+    boundaries = [30*SR, 72*SR, 102*SR]
+    avg_rms = float(np.sqrt(np.mean(audio**2)))
+
+    for b in boundaries:
+        # Measure RMS in a 200ms window centered on the boundary
+        hw = int(SR * 0.1)  # 100ms each side
+        local = audio[b-hw:b+hw]
+        local_rms = float(np.sqrt(np.mean(local**2)))
+        ratio = local_rms / avg_rms if avg_rms > 0 else 0
+        print(f"  Boundary at {b/SR}s: local_rms={local_rms:.5f}, ratio={ratio:.3f}")
+        assert ratio > 0.3, f"Boundary dip at {b/SR}s: local RMS {ratio:.1%} of average (crossfade overlap bug)"
+
+    print("  PASS: no boundary dips, crossfades overlap correctly")
+
+
+# ── 8c. Exact section durations (A=30, B=42, A'=30, outro=18) ─────────────
 def test_exact_section_boundaries():
     m = make_random_motif(555)
     while len(m.events) < 4:
@@ -379,7 +402,8 @@ if __name__ == '__main__':
         ("6. Rhythm degenerate motifs", test_rhythm_degenerate),
         ("7. A′ recognition across keys/seeds", test_aprime_recognition),
         ("8. Section durations = 120s", test_section_durations),
-        ("8b. Exact section boundaries", test_exact_section_boundaries),
+        ("8b. No boundary dips (crossfade overlap)", test_no_boundary_dips),
+        ("8c. Exact section boundaries", test_exact_section_boundaries),
         ("9. WAV header", test_wav_header),
         ("10. Audio quality (peak/DC/silence/xfade)", test_audio_quality),
         ("11. Determinism (hashes)", test_determinism),

@@ -419,20 +419,58 @@ def compose_long_horizon(
         if sections[i].ndim == 2 and sections[i].shape[1] != 2:
             sections[i] = np.column_stack([sections[i][:, 0], sections[i][:, 0]])
 
-    # Inter-section crossfade (2s overlaps)
+    # Crossfade with overlap: place sections so they overlap by xfade_len,
+    # then blend the overlap zones. Total duration preserved by extending
+    # each section with edge-padding (repeat first/last sample) that gets
+    # consumed by the crossfade.
     xfade_len = int(sr * 2.0)
-    parts = [sections[0]]
-    for i in range(1, len(sections)):
-        prev = parts[-1]
-        curr = sections[i]
-        if len(prev) > xfade_len and len(curr) > xfade_len:
+    half_xfade = xfade_len // 2
+
+    # Extend sections with edge padding for crossfade
+    extended = []
+    for i, sec in enumerate(sections):
+        ext = sec.copy()
+        if i > 0:
+            # Pad start by repeating first sample
+            pad = np.repeat(sec[:1], half_xfade, axis=0)
+            ext = np.concatenate([pad, ext], axis=0)
+        if i < len(sections) - 1:
+            # Pad end by repeating last sample
+            pad = np.repeat(sec[-1:], half_xfade, axis=0)
+            ext = np.concatenate([ext, pad], axis=0)
+        extended.append(ext)
+
+    # Place sections with overlap
+    positions = [0]
+    for i in range(1, len(extended)):
+        prev_end = positions[i-1] + len(extended[i-1])
+        positions.append(prev_end - xfade_len)
+
+    total_len = positions[-1] + len(extended[-1])
+    piece = np.zeros((total_len, 2), dtype=np.float64)
+
+    for i, (pos, sec) in enumerate(zip(positions, extended)):
+        if i == 0:
+            piece[pos:pos+len(sec)] = sec
+        else:
+            # Crossfade overlap zone
+            overlap_start = pos
+            overlap_end = pos + xfade_len
             fade_out = np.linspace(1, 0, xfade_len).reshape(-1, 1)
             fade_in = np.linspace(0, 1, xfade_len).reshape(-1, 1)
-            prev[-xfade_len:] *= fade_out  # fade out tail of previous
-            curr[:xfade_len] *= fade_in    # fade in head of current
-        parts.append(curr)
+            # Blend: existing audio fades out, new audio fades in
+            existing = piece[overlap_start:overlap_end].copy()
+            new_head = sec[:xfade_len]
+            piece[overlap_start:overlap_end] = existing * fade_out + new_head * fade_in
+            # Place remainder
+            remainder_start = overlap_end
+            remainder_end = pos + len(sec)
+            piece[remainder_start:remainder_end] = sec[xfade_len:]
 
-    piece = np.concatenate(parts, axis=0)
+    # Trim to exact target duration
+    target_samples = int(sr * total_dur)
+    if len(piece) > target_samples:
+        piece = piece[:target_samples]
 
     # Master: 8s fade-out
     fade_len = int(sr * 8)
