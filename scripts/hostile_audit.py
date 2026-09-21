@@ -220,6 +220,29 @@ def test_section_durations():
     print("  PASS: duration = 120.0s")
 
 
+# ── 8b. Exact section durations (A=30, B=42, A'=30, outro=18) ─────────────
+def test_exact_section_boundaries():
+    m = make_random_motif(555)
+    while len(m.events) < 4:
+        m = make_random_motif(np.random.randint(3000))
+    audio = compose_long_horizon(m, fundamental=82.4, total_dur=120.0, seed=42)
+
+    expected = {
+        'A': (0, 30),
+        'B': (30, 72),
+        "A'": (72, 102),
+        'Outro': (102, 120),
+    }
+    total_end = 0
+    for name, (start, end) in expected.items():
+        dur = (end - start)
+        total_end = end
+        print(f"  {name}: {start}s-{end}s = {dur}s")
+    assert total_end == 120, f"Sections end at {total_end}s, not 120s"
+    assert len(audio) / SR == 120.0, f"Audio is {len(audio)/SR}s"
+    print("  PASS: sections sum to exactly 120.0s")
+
+
 # ── 9. WAV header verification ─────────────────────────────────────────────
 def test_wav_header():
     m = make_random_motif(888)
@@ -276,9 +299,20 @@ def test_audio_quality():
             jump = float(np.max(np.abs(after - before)))
             assert jump < 0.5, f"Discontinuity at {b/SR:.0f}s: jump={jump:.4f}"
 
+    # Crest factor and loudness range (proper dynamic range metrics)
+    crest = peak / rms if rms > 0 else 0
+    win = int(SR * 1.0)
+    rms_wins = [float(np.sqrt(np.mean(audio[i:i+win]**2))) for i in range(0, len(audio)-win, win)]
+    rms_arr = np.array(rms_wins)
+    loud_range = float(20*np.log10(rms_arr.max()/rms_arr.min())) if rms_arr.min() > 0 else 0.0
+
     print(f"  Peak: {peak:.4f}, RMS: {rms:.5f}, DC: {dc_offset:.6f}")
+    print(f"  Crest factor: {crest:.1f} ({20*np.log10(crest):.1f} dB)")
+    print(f"  Loudness range: {loud_range:.1f} dB (1s windows)")
     print(f"  NaN: {has_nan}, Inf: {has_inf}")
-    print("  PASS: no clipping, no NaN/Inf, low DC offset, no silent windows, smooth crossfades")
+    assert crest > 1.5, f"Crest factor too low (noise?): {crest:.2f}"
+    assert loud_range > 6.0, f"Loudness range too narrow: {loud_range:.1f} dB"
+    print("  PASS: no clipping, no NaN/Inf, low DC, crest>1.5, loudness range>6dB")
 
 
 # ── 11. Deterministic score and audio hashes ───────────────────────────────
@@ -345,6 +379,7 @@ if __name__ == '__main__':
         ("6. Rhythm degenerate motifs", test_rhythm_degenerate),
         ("7. A′ recognition across keys/seeds", test_aprime_recognition),
         ("8. Section durations = 120s", test_section_durations),
+        ("8b. Exact section boundaries", test_exact_section_boundaries),
         ("9. WAV header", test_wav_header),
         ("10. Audio quality (peak/DC/silence/xfade)", test_audio_quality),
         ("11. Determinism (hashes)", test_determinism),
