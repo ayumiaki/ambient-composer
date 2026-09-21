@@ -346,28 +346,36 @@ def compose_long_horizon(
 
     # ── B: development — fragments, counterpoint, transformations ──
     fragments = []
-    remaining = b_dur
-    transforms = [
-        lambda m: transpose(m, rng.choice([-5, -2, 2, 5, 7])),
-        lambda m: fragment(m, rng.uniform(0.4, 0.7), seed=rng.randint(1000)),
-        lambda m: invert(fragment(m, 0.6, seed=rng.randint(1000))),
-        lambda m: augment(fragment(m, 0.5, seed=rng.randint(1000)), rng.uniform(1.5, 2.5)),
-    ]
-    while remaining > unit_dur * 2:
+    # Generate enough fragments to fill b_dur at 50% overlap
+    avg_frag_dur = unit_dur  # average fragment duration
+    avg_frag_samples = int(sr * avg_frag_dur)
+    n_frags_needed = int((sr * b_dur) / (avg_frag_samples * 0.5)) + 5
+    for _ in range(n_frags_needed):
+        transforms = [
+            lambda m: transpose(m, rng.choice([-5, -2, 2, 5, 7])),
+            lambda m: fragment(m, rng.uniform(0.4, 0.7), seed=rng.randint(1000)),
+            lambda m: invert(fragment(m, 0.6, seed=rng.randint(1000))),
+            lambda m: augment(fragment(m, 0.5, seed=rng.randint(1000)), rng.uniform(1.5, 2.5)),
+        ]
         t = rng.choice(transforms)
         fm = t(motif)
         frag_audio = render_motif(fm, fundamental, unit_dur * rng.uniform(0.8, 1.2), sr,
                                    stereo_width=0.5 + 0.3 * rng.random())
         if len(frag_audio) > 0:
             fragments.append(frag_audio)
-        remaining -= unit_dur * 3
 
     if fragments:
         # Overlap-add with crossfade
         b_target = int(sr * b_dur)
         b_audio = np.zeros((b_target, 2))
         pos = 0
-        for frag in fragments:
+        frag_idx = 0
+        max_iters = 500  # safety cap
+        iters = 0
+        while pos < b_target and iters < max_iters:
+            frag = fragments[frag_idx % len(fragments)]
+            frag_idx += 1
+            iters += 1
             end = min(pos + len(frag), b_target)
             actual = end - pos
             if actual > 0:
@@ -378,8 +386,6 @@ def compose_long_horizon(
                 if actual > fade_in:
                     b_audio[pos+fade_in:end] += frag[fade_in:actual]
             pos += len(frag) // 2  # 50% overlap
-            if pos >= b_target:
-                break
     else:
         b_audio = np.zeros((int(sr * b_dur), 2))
 
