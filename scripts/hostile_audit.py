@@ -362,34 +362,49 @@ def test_determinism():
     print(f"  Similarity: {s1:.6f} (stable)")
     print("  PASS: deterministic")
 
+# ── 12. Demo WAV integrity ─────────────────────────────────────────────────
+COMMITTED_DEMO_HASH = "3873beaaa26f70e91c0f87956537ffa19ccd27b3b90f5cf7477eb68c2a62a0c8"
 
-# ── 12. Demo actually uses motif objects being scored ──────────────────────
-def test_demo_uses_scored_objects():
-    # Recreate the demo composition exactly
-    A = Motif(events=[
-        Event(0,  1.0, 0.9, 'lead'),
-        Event(3,  0.6, 0.7, 'lead'),
-        Event(7,  0.8, 0.85, 'lead'),
-        Event(12, 1.2, 0.9, 'pad'),
-        Event(7,  0.5, 0.6, 'ornament'),
-        Event(3,  0.5, 0.55, 'ornament'),
-        Event(0,  1.8, 0.9, 'lead'),
-        Event(-5, 1.0, 0.7, 'bass'),
-    ], name='A')
+def test_demo_wav_integrity():
+    """Verify the committed demo reproduces byte-for-byte.
+
+    The demo motif (seed=7, fundamental=82.4 Hz) has a known SHA-256.
+    If the composition logic changes, this test fails — proving the
+    committed artifact is reproducible, not just that the source contains
+    the right literals.
+    """
+    A = Motif(
+        events=[
+            Event(0,  1.0, 0.9, 'lead'),
+            Event(3,  0.6, 0.7, 'lead'),
+            Event(7,  0.8, 0.85, 'lead'),
+            Event(12, 1.2, 0.9, 'pad'),
+            Event(7,  0.5, 0.6, 'ornament'),
+            Event(3,  0.5, 0.55, 'ornament'),
+            Event(0,  1.8, 0.9, 'lead'),
+            Event(-5, 1.0, 0.7, 'bass'),
+        ], name='A')
 
     audio = compose_long_horizon(A, fundamental=82.4, total_dur=120.0, seed=7)
     assert audio.shape[0] == 120 * SR, f"Wrong length: {audio.shape[0]}"
 
-    # The scored objects in the test file must be present in the source
-    with open(__file__) as f:
-        src = f.read()
-    # These specific intervals must appear in the demo
-    assert "Event(0,  1.0, 0.9, 'lead')" in src
-    assert "Event(7,  0.8, 0.85, 'lead')" in src
-    assert "Event(-5, 1.0, 0.7, 'bass')" in src
+    # Write to WAV and hash
+    import hashlib
+    import wave
+    import io
+    buf = io.BytesIO()
+    audio_16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+    with wave.open(buf, 'w') as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(SR)
+        wf.writeframes(audio_16.tobytes())
+    actual_hash = hashlib.sha256(buf.getvalue()).hexdigest()
 
-    print("  Demo composition uses the exact motif objects from the source")
-    print("  PASS: scored objects match demo")
+    print(f"  Demo SHA-256: {actual_hash}")
+    assert actual_hash == COMMITTED_DEMO_HASH, \
+        f"Demo WAV changed!\n  expected: {COMMITTED_DEMO_HASH}\n  actual:   {actual_hash}"
+    print("  PASS: demo WAV matches committed hash")
 
 
 if __name__ == '__main__':
@@ -407,7 +422,7 @@ if __name__ == '__main__':
         ("9. WAV header", test_wav_header),
         ("10. Audio quality (peak/DC/silence/xfade)", test_audio_quality),
         ("11. Determinism (hashes)", test_determinism),
-        ("12. Demo uses scored objects", test_demo_uses_scored_objects),
+        ("12. Demo WAV integrity", test_demo_wav_integrity),
     ]
 
     passed = 0

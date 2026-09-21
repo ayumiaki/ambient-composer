@@ -543,8 +543,8 @@ if __name__ == "__main__":
     print(f"  Similarity: {motif_similarity(m, frag):.3f}")
 
     # Compose
-    print(f"\nComposing A→B→A'→outro (60s, D2=73.4Hz)...")
-    audio = compose_long_horizon(m, fundamental=73.4, total_dur=60.0, seed=42)
+    print(f"\nComposing A→B→A'→outro (120s, D2=82.4Hz)...")
+    audio = compose_long_horizon(m, fundamental=82.4, total_dur=120.0, seed=7)
     out = "/home/rynardt/songs/motif_demo.wav"
     write_wav(audio, out)
     import os
