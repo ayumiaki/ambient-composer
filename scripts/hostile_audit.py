@@ -13,7 +13,7 @@ from motif import (
     Motif, Event, transpose, invert, fragment, augment, diminish,
     omit_notes, ornament, displace_register, call_response, cadential_mutate,
     motif_similarity, interval_distance, contour_distance, rhythm_distance,
-    compose_long_horizon, render_motif, write_wav, SR
+    compose_long_horizon, render_motif, write_wav, make_demo_motif, SR
 )
 
 
@@ -363,48 +363,42 @@ def test_determinism():
     print("  PASS: deterministic")
 
 # ── 12. Demo WAV integrity ─────────────────────────────────────────────────
-COMMITTED_DEMO_HASH = "3873beaaa26f70e91c0f87956537ffa19ccd27b3b90f5cf7477eb68c2a62a0c8"
-
 def test_demo_wav_integrity():
-    """Verify the committed demo reproduces byte-for-byte.
+    """Verify the committed demo WAV reproduces byte-for-byte from the canonical factory.
 
-    The demo motif (seed=7, fundamental=82.4 Hz) has a known SHA-256.
-    If the composition logic changes, this test fails — proving the
-    committed artifact is reproducible, not just that the source contains
-    the right literals.
+    Builds the motif through make_demo_motif(), renders with declared parameters,
+    hashes the generated WAV, hashes output/becoming_motif_demo.wav, and asserts
+    equality. No hard-coded hash — the test reads the actual committed file.
     """
-    A = Motif(
-        events=[
-            Event(0,  1.0, 0.9, 'lead'),
-            Event(3,  0.6, 0.7, 'lead'),
-            Event(7,  0.8, 0.85, 'lead'),
-            Event(12, 1.2, 0.9, 'pad'),
-            Event(7,  0.5, 0.6, 'ornament'),
-            Event(3,  0.5, 0.55, 'ornament'),
-            Event(0,  1.8, 0.9, 'lead'),
-            Event(-5, 1.0, 0.7, 'bass'),
-        ], name='A')
-
-    audio = compose_long_horizon(A, fundamental=82.4, total_dur=120.0, seed=7)
-    assert audio.shape[0] == 120 * SR, f"Wrong length: {audio.shape[0]}"
-
-    # Write to WAV and hash
     import hashlib
     import wave
     import io
-    buf = io.BytesIO()
+
+    # Build through the canonical factory
+    m = make_demo_motif()
+    audio = compose_long_horizon(m, fundamental=82.4, total_dur=120.0, seed=7)
+    assert audio.shape[0] == 120 * SR, f"Wrong length: {audio.shape[0]}"
+
+    # Hash the rendered output
     audio_16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+    buf = io.BytesIO()
     with wave.open(buf, 'w') as wf:
         wf.setnchannels(2)
         wf.setsampwidth(2)
         wf.setframerate(SR)
         wf.writeframes(audio_16.tobytes())
-    actual_hash = hashlib.sha256(buf.getvalue()).hexdigest()
+    rendered_hash = hashlib.sha256(buf.getvalue()).hexdigest()
 
-    print(f"  Demo SHA-256: {actual_hash}")
-    assert actual_hash == COMMITTED_DEMO_HASH, \
-        f"Demo WAV changed!\n  expected: {COMMITTED_DEMO_HASH}\n  actual:   {actual_hash}"
-    print("  PASS: demo WAV matches committed hash")
+    # Hash the actual committed file
+    demo_path = os.path.join(os.path.dirname(__file__), '..', 'output', 'becoming_motif_demo.wav')
+    with open(demo_path, 'rb') as f:
+        committed_hash = hashlib.sha256(f.read()).hexdigest()
+
+    print(f"  Rendered SHA-256:  {rendered_hash}")
+    print(f"  Committed SHA-256: {committed_hash}")
+    assert rendered_hash == committed_hash, \
+        f"Committed demo WAV does not match fresh render!\n  rendered:  {rendered_hash}\n  committed: {committed_hash}"
+    print("  PASS: committed demo WAV reproduces byte-for-byte from canonical factory")
 
 
 if __name__ == '__main__':
